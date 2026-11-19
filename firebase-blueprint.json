@@ -1,0 +1,172 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Authenticated HardWorkAI user account profile used to bind MCP connectors.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the HardWorkAI account."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 254,
+          "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+          "description": "Verified account email address."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Display name of the HardWorkAI user."
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^https://[^\\s]+$",
+          "description": "Optional HTTPS avatar URL from Google account."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the account record was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the account record was last updated."
+        }
+      },
+      "required": ["uid", "email", "displayName", "createdAt", "updatedAt"]
+    },
+    "McpConnection": {
+      "title": "McpConnection",
+      "description": "Configured MCP connector bound to the authenticated HardWorkAI user account.",
+      "type": "object",
+      "properties": {
+        "connectorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Catalog or custom identifier of the MCP connector."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Display name of the MCP connector."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Short summary of connector capabilities."
+        },
+        "endpoint": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "pattern": "^(https://[^\\s]+|(stdio://)?[a-zA-Z0-9._\\-/ @:]+)$",
+          "description": "HTTPS MCP server endpoint URL or sanitized stdio command."
+        },
+        "transport": {
+          "type": "string",
+          "enum": ["streamable-http", "sse", "stdio"],
+          "description": "MCP transport protocol."
+        },
+        "approvedAppsOnly": {
+          "type": "boolean",
+          "description": "Whether connector requires approved workspace apps."
+        },
+        "custom": {
+          "type": "boolean",
+          "description": "Whether the connector was added manually via Adicionar outro MCP."
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "HardWorkAI user UID bound to this MCP connection."
+        },
+        "accountEmail": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 254,
+          "description": "HardWorkAI account email bound to this MCP connection."
+        },
+        "everyoneInOrg": {
+          "type": "boolean",
+          "description": "Whether all organization members can access this MCP connector."
+        },
+        "people": {
+          "type": "array",
+          "description": "Specific people granted access (max 50)."
+        },
+        "teams": {
+          "type": "array",
+          "description": "Specific teams granted access (max 50)."
+        },
+        "toolsSelection": {
+          "type": "string",
+          "enum": ["all", "picked"],
+          "description": "Whether all connector tools or only picked tools are enabled."
+        },
+        "selectedTools": {
+          "type": "array",
+          "description": "Picked tool identifiers (max 50)."
+        },
+        "connected": {
+          "type": "boolean",
+          "description": "Connection state of the MCP connector."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the connector was added."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the connector was last updated."
+        }
+      },
+      "required": [
+        "connectorId",
+        "name",
+        "description",
+        "endpoint",
+        "transport",
+        "approvedAppsOnly",
+        "custom",
+        "ownerUid",
+        "accountEmail",
+        "everyoneInOrg",
+        "people",
+        "teams",
+        "toolsSelection",
+        "selectedTools",
+        "connected",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "HardWorkAI authenticated user account profile."
+    },
+    "/users/{userId}/mcpConnections/{connectionId}": {
+      "schema": { "$ref": "#/entities/McpConnection" },
+      "description": "MCP connector configurations linked to the authenticated HardWorkAI account."
+    }
+  }
+}

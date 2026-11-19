@@ -6,6 +6,9 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Loader2,
+  LogIn,
+  LogOut,
   Moon,
   Network,
   PanelLeftClose,
@@ -20,6 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { BrandLogo, BrandWordmark } from './BrandLogo';
+import type { HardWorkUser } from './FirebaseAuthProvider';
 import type { ActiveSection, Conversation } from '@/lib/types';
 
 interface SidebarProps {
@@ -29,6 +33,8 @@ interface SidebarProps {
   activePluginsCount: number;
   connectedMcpCount: number;
   configuredProvidersCount: number;
+  user: HardWorkUser | null;
+  signingIn: boolean;
   isOpen: boolean;
   isDark: boolean;
   hasCustomInstructions: boolean;
@@ -41,6 +47,8 @@ interface SidebarProps {
   onClose: () => void;
   onToggleTheme: () => void;
   onOpenInstructions: () => void;
+  onSignIn: () => void;
+  onLogout: () => void;
 }
 
 function groupConversations(items: Conversation[]) {
@@ -83,6 +91,8 @@ export default function Sidebar({
   activePluginsCount,
   connectedMcpCount,
   configuredProvidersCount,
+  user,
+  signingIn,
   isOpen,
   isDark,
   hasCustomInstructions,
@@ -95,6 +105,8 @@ export default function Sidebar({
   onClose,
   onToggleTheme,
   onOpenInstructions,
+  onSignIn,
+  onLogout,
 }: SidebarProps) {
   const [search, setSearch] = useState('');
   const [manageExpanded, setManageExpanded] = useState(true);
@@ -403,7 +415,48 @@ export default function Sidebar({
           )}
         </nav>
 
-        <div className="p-3 border-t border-[#E6E2D8] dark:border-[#262522] space-y-1">
+        <div className="p-3 border-t border-[#E6E2D8] dark:border-[#262522] space-y-1.5">
+          {user ? (
+            <div className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-[#EAE6DC]/65 dark:bg-[#1E1D1B]">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-7 h-7 rounded-full bg-[#C96442]/18 dark:bg-[#D97757]/22 text-[#C96442] dark:text-[#E28868] flex items-center justify-center text-[11px] font-semibold shrink-0">
+                  {user.displayName.slice(0, 2).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-[#1F1E1C] dark:text-[#F2EFE9] truncate">
+                    {user.displayName}
+                  </p>
+                  <p className="text-[11px] text-[#7D786E] dark:text-[#969187] truncate">
+                    {user.email}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onLogout}
+                title="Sair da conta"
+                aria-label="Sair da conta HardWorkAI"
+                className="p-1.5 rounded-md text-[#7D786E] hover:text-[#1F1E1C] dark:hover:text-[#F2EFE9] hover:bg-[#DFDBD0] dark:hover:bg-[#2C2A26] transition-colors cursor-pointer shrink-0"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={signingIn}
+              onClick={onSignIn}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[#141720] hover:bg-[#232836] dark:bg-[#F2EFE9] dark:hover:bg-[#DFDBD2] text-white dark:text-[#141720] text-xs font-medium transition-colors cursor-pointer whitespace-nowrap disabled:opacity-60"
+            >
+              {signingIn ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <LogIn className="w-3.5 h-3.5" />
+              )}
+              <span>Entrar na HardWorkAI</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onOpenInstructions}

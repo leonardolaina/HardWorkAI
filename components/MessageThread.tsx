@@ -133,7 +133,7 @@ export default function MessageThread({
                   </div>
 
                   {!isStreaming && (
-                    <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 mt-1.5 opacity-75 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                       <button
                         type="button"
                         onClick={() => handleCopy(msg.id, msg.content)}
@@ -239,7 +239,7 @@ export default function MessageThread({
               )}
 
               {!isAssistantStreaming && msg.content && !msg.error && (
-                <div className="flex items-center gap-1 mt-3 opacity-80 group-hover:opacity-100 transition-opacity">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-3 opacity-80 group-hover:opacity-100 transition-opacity">
                   <button
                     type="button"
                     onClick={() => handleCopy(msg.id, msg.content)}
@@ -267,6 +267,20 @@ export default function MessageThread({
                       <RotateCcw className="w-3.5 h-3.5" />
                       <span>Regenerar</span>
                     </button>
+                  )}
+
+                  {msg.modelLabel && (
+                    <span
+                      title={
+                        msg.routingReason
+                          ? `${msg.modelLabel} — ${msg.routingReason}`
+                          : msg.modelLabel
+                      }
+                      className="ml-auto text-[11px] text-[#8D887E] dark:text-[#78746B] truncate max-w-[260px] sm:max-w-[360px]"
+                    >
+                      {msg.modelLabel}
+                      {msg.routingReason ? ` · ${msg.routingReason}` : ''}
+                    </span>
                   )}
                 </div>
               )}

@@ -1,0 +1,251 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1: Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Hardened Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidEmail(email) {
+      return email is string
+        && email.size() >= 3
+        && email.size() <= 254
+        && email.matches('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
+    }
+
+    function isValidHttpsUrl(url, maxLen) {
+      return url is string
+        && url.size() >= 10
+        && url.size() <= maxLen
+        && url.matches('^https://[^\\s]+$');
+    }
+
+    function isValidEndpoint(endpoint, transport) {
+      return endpoint is string
+        && endpoint.size() >= 1
+        && endpoint.size() <= 500
+        && (
+          (transport in ['streamable-http', 'sse'] && isValidHttpsUrl(endpoint, 500)) ||
+          (transport == 'stdio' && endpoint.matches('^(stdio://)?[a-zA-Z0-9._\\-/ @:]+$'))
+        );
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidStringList(arr, maxItems, maxLen) {
+      return arr is list
+        && arr.size() <= maxItems
+        && (arr.size() == 0 || (arr[0] is string && arr[0].size() >= 1 && arr[0].size() <= maxLen));
+    }
+
+    // Master Gate: Verify parent HardWorkAI account exists and matches authenticated identity
+    function hasVerifiedParentAccount(userId, expectedEmail) {
+      let parentDoc = get(/databases/$(database)/documents/users/$(userId));
+      return parentDoc != null
+        && parentDoc.data.uid == request.auth.uid
+        && parentDoc.data.email == expectedEmail;
+    }
+
+    // Validation Blueprint: UserAccount
+    function isValidUserAccount(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && data.uid == userId
+        && isValidEmail(data.email)
+        && data.email == request.auth.token.email
+        && data.displayName is string
+        && data.displayName.size() >= 1
+        && data.displayName.size() <= 120
+        && (!('photoURL' in data) || (data.photoURL is string && (data.photoURL == '' || isValidHttpsUrl(data.photoURL, 512))))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: McpConnection
+    function isValidMcpConnection(data, userId, connectionId) {
+      return data.keys().hasAll([
+          'connectorId',
+          'name',
+          'description',
+          'endpoint',
+          'transport',
+          'approvedAppsOnly',
+          'custom',
+          'ownerUid',
+          'accountEmail',
+          'everyoneInOrg',
+          'people',
+          'teams',
+          'toolsSelection',
+          'selectedTools',
+          'connected',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'connectorId',
+          'name',
+          'description',
+          'endpoint',
+          'transport',
+          'approvedAppsOnly',
+          'custom',
+          'ownerUid',
+          'accountEmail',
+          'everyoneInOrg',
+          'people',
+          'teams',
+          'toolsSelection',
+          'selectedTools',
+          'connected',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.connectorId)
+        && data.connectorId == connectionId
+        && data.name is string
+        && data.name.size() >= 1
+        && data.name.size() <= 120
+        && data.description is string
+        && data.description.size() <= 500
+        && data.transport in ['streamable-http', 'sse', 'stdio']
+        && isValidEndpoint(data.endpoint, data.transport)
+        && data.approvedAppsOnly is bool
+        && data.custom is bool
+        && isValidId(data.ownerUid)
+        && data.ownerUid == request.auth.uid
+        && data.ownerUid == userId
+        && isValidEmail(data.accountEmail)
+        && data.accountEmail == request.auth.token.email
+        && data.everyoneInOrg is bool
+        && isValidStringList(data.people, 50, 120)
+        && isValidStringList(data.teams, 50, 120)
+        && data.toolsSelection in ['all', 'picked']
+        && isValidStringList(data.selectedTools, 50, 120)
+        && (data.toolsSelection == 'picked' || data.selectedTools.size() == 0)
+        && data.connected is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isMcpToggleAction() {
+      return incoming().diff(existing()).affectedKeys().hasOnly(['connected', 'updatedAt']);
+    }
+
+    function isMcpConfigUpdateAction() {
+      return incoming().diff(existing()).affectedKeys().hasOnly([
+        'name',
+        'description',
+        'endpoint',
+        'transport',
+        'everyoneInOrg',
+        'people',
+        'teams',
+        'toolsSelection',
+        'selectedTools',
+        'connected',
+        'updatedAt'
+      ]);
+    }
+
+    // HardWorkAI User Accounts (Strict PII Isolation)
+    match /users/{userId} {
+      allow get: if isVerified() && isValidId(userId) && isOwner(userId);
+      allow list: if false;
+
+      allow create: if isVerified()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserAccount(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerified()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserAccount(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']);
+
+      allow delete: if false;
+
+      // Account-Bound MCP Connectors (Master Gate on parent /users/{userId})
+      match /mcpConnections/{connectionId} {
+        allow get: if isVerified()
+          && isValidId(userId)
+          && isValidId(connectionId)
+          && isOwner(userId)
+          && existing().ownerUid == request.auth.uid
+          && existing().accountEmail == request.auth.token.email;
+
+        allow list: if isVerified()
+          && isOwner(userId)
+          && existing().ownerUid == request.auth.uid
+          && existing().accountEmail == request.auth.token.email;
+
+        allow create: if isVerified()
+          && isValidId(userId)
+          && isValidId(connectionId)
+          && isOwner(userId)
+          && isValidMcpConnection(incoming(), userId, connectionId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && hasVerifiedParentAccount(userId, incoming().accountEmail);
+
+        allow update: if isVerified()
+          && isValidId(userId)
+          && isValidId(connectionId)
+          && isOwner(userId)
+          && isValidMcpConnection(incoming(), userId, connectionId)
+          && existing().ownerUid == request.auth.uid
+          && existing().accountEmail == request.auth.token.email
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().accountEmail == existing().accountEmail
+          && incoming().connectorId == existing().connectorId
+          && incoming().approvedAppsOnly == existing().approvedAppsOnly
+          && incoming().custom == existing().custom
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (isMcpToggleAction() || isMcpConfigUpdateAction())
+          && hasVerifiedParentAccount(userId, incoming().accountEmail);
+
+        allow delete: if isVerified()
+          && isValidId(userId)
+          && isValidId(connectionId)
+          && isOwner(userId)
+          && existing().ownerUid == request.auth.uid
+          && existing().accountEmail == request.auth.token.email
+          && hasVerifiedParentAccount(userId, existing().accountEmail);
+      }
+    }
+  }
+}

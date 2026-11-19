@@ -5,7 +5,6 @@ import Image from 'next/image';
 import {
   ArrowUp,
   Check,
-  ChevronDown,
   FileText,
   Globe,
   Paperclip,
@@ -13,18 +12,20 @@ import {
   Square,
   X,
 } from 'lucide-react';
+import ModelSelectorMenu from './ModelSelectorMenu';
 import {
-  REASONING_MODES,
+  BUILTIN_AI_MODELS,
   RESPONSE_STYLES,
+  type AiModelChoice,
   type Attachment,
-  type ReasoningMode,
   type ResponseStyle,
 } from '@/lib/types';
 
 interface ComposerProps {
   value: string;
   attachments: Attachment[];
-  mode: ReasoningMode;
+  availableModels: AiModelChoice[];
+  selectedModelId: string;
   style: ResponseStyle;
   webSearch: boolean;
   isStreaming: boolean;
@@ -33,9 +34,10 @@ interface ComposerProps {
   onChange: (value: string) => void;
   onAddAttachments: (files: FileList | File[]) => void;
   onRemoveAttachment: (id: string) => void;
-  onChangeMode: (mode: ReasoningMode) => void;
+  onChangeModel: (modelId: string) => void;
   onChangeStyle: (style: ResponseStyle) => void;
   onToggleWebSearch: () => void;
+  onOpenGateway: (providerId?: string) => void;
   onSend: () => void;
   onStop: () => void;
 }
@@ -49,7 +51,8 @@ function formatBytes(bytes: number): string {
 export default function Composer({
   value,
   attachments,
-  mode,
+  availableModels,
+  selectedModelId,
   style,
   webSearch,
   isStreaming,
@@ -58,20 +61,25 @@ export default function Composer({
   onChange,
   onAddAttachments,
   onRemoveAttachment,
-  onChangeMode,
+  onChangeModel,
   onChangeStyle,
   onToggleWebSearch,
+  onOpenGateway,
   onSend,
   onStop,
 }: ComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const menusRef = useRef<HTMLDivElement>(null);
+  const styleMenuRef = useRef<HTMLDivElement>(null);
 
-  const [openMenu, setOpenMenu] = useState<'mode' | 'style' | null>(null);
+  const [styleOpen, setStyleOpen] = useState(false);
 
-  const activeMode = REASONING_MODES.find((m) => m.id === mode) ?? REASONING_MODES[1];
-  const activeStyle = RESPONSE_STYLES.find((s) => s.id === style) ?? RESPONSE_STYLES[0];
+  const activeModel =
+    availableModels.find((m) => m.id === selectedModelId) ??
+    availableModels[0] ??
+    BUILTIN_AI_MODELS[0];
+  const activeStyle =
+    RESPONSE_STYLES.find((s) => s.id === style) ?? RESPONSE_STYLES[0];
   const canSend = (value.trim().length > 0 || attachments.length > 0) && !isStreaming;
 
   useEffect(() => {
@@ -82,20 +90,20 @@ export default function Composer({
   }, [value]);
 
   useEffect(() => {
-    if (autoFocus) {
+    if (autoFocus && typeof window !== 'undefined' && window.innerWidth >= 768) {
       textareaRef.current?.focus();
     }
   }, [autoFocus]);
 
   useEffect(() => {
-    if (!openMenu) return;
+    if (!styleOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (menusRef.current && !menusRef.current.contains(e.target as Node)) {
-        setOpenMenu(null);
+      if (styleMenuRef.current && !styleMenuRef.current.contains(e.target as Node)) {
+        setStyleOpen(false);
       }
     };
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpenMenu(null);
+      if (e.key === 'Escape') setStyleOpen(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     window.addEventListener('keydown', handleEscape);
@@ -103,7 +111,7 @@ export default function Composer({
       document.removeEventListener('mousedown', handleClickOutside);
       window.removeEventListener('keydown', handleEscape);
     };
-  }, [openMenu]);
+  }, [styleOpen]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -130,13 +138,15 @@ export default function Composer({
     }
   };
 
+  const supportsWebSearch =
+    activeModel.source === 'auto' ||
+    activeModel.source === 'builtin' ||
+    activeModel.providerId === 'google';
+
   return (
-    <div
-      ref={menusRef}
-      className="relative rounded-2xl border border-[#DFDBD0] dark:border-[#34322E] bg-white dark:bg-[#252421] shadow-[0_2px_12px_rgba(31,30,28,0.05)] dark:shadow-[0_2px_16px_rgba(0,0,0,0.28)] focus-within:border-[#C96442]/65 dark:focus-within:border-[#D97757]/65 transition-colors"
-    >
+    <div className="relative rounded-2xl border border-[#DFDBD0] dark:border-[#34322E] bg-white dark:bg-[#252421] shadow-[0_2px_12px_rgba(31,30,28,0.05)] dark:shadow-[0_2px_16px_rgba(0,0,0,0.28)] focus-within:border-[#C96442]/65 dark:focus-within:border-[#D97757]/65 transition-colors">
       {attachments.length > 0 && (
-        <div className="flex flex-wrap gap-2 px-4 pt-3.5 pb-1">
+        <div className="flex flex-wrap gap-2 px-3.5 sm:px-4 pt-3.5 pb-1">
           {attachments.map((att) => (
             <div
               key={att.id}
@@ -177,7 +187,7 @@ export default function Composer({
         </div>
       )}
 
-      <div className="px-4 pt-3.5 pb-2">
+      <div className="px-3.5 sm:px-4 pt-3.5 pb-2">
         <textarea
           ref={textareaRef}
           value={value}
@@ -187,12 +197,12 @@ export default function Composer({
           placeholder={placeholder}
           rows={1}
           aria-label="Mensagem para a HardWorkAI"
-          className="w-full bg-transparent text-[0.96875rem] leading-relaxed text-[#1F1E1C] dark:text-[#F2EFE9] placeholder:text-[#8D887E] dark:placeholder:text-[#78746B] resize-none focus:outline-none min-h-[28px] max-h-[220px]"
+          className="w-full bg-transparent text-base sm:text-[0.96875rem] leading-relaxed text-[#1F1E1C] dark:text-[#F2EFE9] placeholder:text-[#8D887E] dark:placeholder:text-[#78746B] resize-none focus:outline-none min-h-[28px] max-h-[220px]"
         />
       </div>
 
-      <div className="flex items-center justify-between gap-2 px-3 pb-3 pt-1">
-        <div className="flex items-center gap-1 min-w-0">
+      <div className="flex items-center justify-between gap-1.5 sm:gap-2 px-2.5 sm:px-3 pb-2.5 sm:pb-3 pt-1">
+        <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
           <input
             ref={fileInputRef}
             type="file"
@@ -212,44 +222,46 @@ export default function Composer({
             onClick={() => fileInputRef.current?.click()}
             title="Anexar imagem ou arquivo de texto"
             aria-label="Anexar arquivo"
-            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-[#6B675E] dark:text-[#A19C92] hover:bg-[#F3F1EA] dark:hover:bg-[#312F2B] hover:text-[#1F1E1C] dark:hover:text-[#F2EFE9] transition-colors cursor-pointer shrink-0"
+            className="inline-flex items-center justify-center w-9 h-9 sm:w-8 sm:h-8 rounded-lg text-[#6B675E] dark:text-[#A19C92] hover:bg-[#F3F1EA] dark:hover:bg-[#312F2B] hover:text-[#1F1E1C] dark:hover:text-[#F2EFE9] transition-colors cursor-pointer shrink-0"
           >
             <Paperclip className="w-4 h-4" />
           </button>
 
-          <button
-            type="button"
-            onClick={onToggleWebSearch}
-            aria-pressed={webSearch}
-            title="Usar busca na web em tempo real"
-            className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              webSearch
-                ? 'bg-[#C96442]/12 dark:bg-[#D97757]/18 text-[#B55433] dark:text-[#EC9A7E]'
-                : 'text-[#6B675E] dark:text-[#A19C92] hover:bg-[#F3F1EA] dark:hover:bg-[#312F2B] hover:text-[#1F1E1C] dark:hover:text-[#F2EFE9]'
-            }`}
-          >
-            <Globe className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden sm:inline">Buscar na web</span>
-          </button>
-
-          <div className="relative">
+          {supportsWebSearch && (
             <button
               type="button"
-              onClick={() => setOpenMenu(openMenu === 'style' ? null : 'style')}
-              aria-expanded={openMenu === 'style'}
+              onClick={onToggleWebSearch}
+              aria-pressed={webSearch}
+              title="Usar busca na web em tempo real"
+              className={`inline-flex items-center justify-center sm:justify-start gap-1.5 h-9 sm:h-8 px-2.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                webSearch
+                  ? 'bg-[#C96442]/12 dark:bg-[#D97757]/18 text-[#B55433] dark:text-[#EC9A7E]'
+                  : 'text-[#6B675E] dark:text-[#A19C92] hover:bg-[#F3F1EA] dark:hover:bg-[#312F2B] hover:text-[#1F1E1C] dark:hover:text-[#F2EFE9]'
+              }`}
+            >
+              <Globe className="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" />
+              <span className="hidden sm:inline">Buscar na web</span>
+            </button>
+          )}
+
+          <div ref={styleMenuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setStyleOpen((prev) => !prev)}
+              aria-expanded={styleOpen}
               title="Estilo de resposta"
-              className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              className={`inline-flex items-center justify-center sm:justify-start gap-1.5 h-9 sm:h-8 px-2.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 style !== 'normal'
                   ? 'bg-[#EFECE3] dark:bg-[#312F2B] text-[#1F1E1C] dark:text-[#F2EFE9]'
                   : 'text-[#6B675E] dark:text-[#A19C92] hover:bg-[#F3F1EA] dark:hover:bg-[#312F2B] hover:text-[#1F1E1C] dark:hover:text-[#F2EFE9]'
               }`}
             >
-              <Sliders className="w-3.5 h-3.5 shrink-0" />
+              <Sliders className="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" />
               <span className="hidden sm:inline">{activeStyle.label}</span>
             </button>
 
-            {openMenu === 'style' && (
-              <div className="absolute left-0 bottom-full mb-2 w-64 rounded-xl border border-[#E2DDD2] dark:border-[#35332E] bg-white dark:bg-[#22211E] shadow-lg p-1.5 z-30">
+            {styleOpen && (
+              <div className="absolute left-0 bottom-full mb-2 w-[min(17rem,calc(100vw-2rem))] rounded-xl border border-[#E2DDD2] dark:border-[#35332E] bg-white dark:bg-[#22211E] shadow-lg p-1.5 z-30">
                 <div className="px-2.5 py-1.5 text-[11px] font-medium text-[#7D786E] dark:text-[#8E897F]">
                   Estilo de resposta
                 </div>
@@ -261,7 +273,7 @@ export default function Composer({
                       type="button"
                       onClick={() => {
                         onChangeStyle(item.id);
-                        setOpenMenu(null);
+                        setStyleOpen(false);
                       }}
                       className={`w-full flex items-start justify-between gap-2 px-2.5 py-2 rounded-lg text-left transition-colors cursor-pointer ${
                         selected
@@ -288,56 +300,16 @@ export default function Composer({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setOpenMenu(openMenu === 'mode' ? null : 'mode')}
-              aria-expanded={openMenu === 'mode'}
-              className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg text-xs font-medium text-[#55524A] dark:text-[#C5C0B6] hover:bg-[#F3F1EA] dark:hover:bg-[#312F2B] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <span>{activeMode.label}</span>
-              <ChevronDown className="w-3.5 h-3.5 opacity-70" />
-            </button>
-
-            {openMenu === 'mode' && (
-              <div className="absolute right-0 bottom-full mb-2 w-72 rounded-xl border border-[#E2DDD2] dark:border-[#35332E] bg-white dark:bg-[#22211E] shadow-lg p-1.5 z-30">
-                <div className="px-2.5 py-1.5 text-[11px] font-medium text-[#7D786E] dark:text-[#8E897F]">
-                  Nível de raciocínio
-                </div>
-                {REASONING_MODES.map((item) => {
-                  const selected = item.id === mode;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => {
-                        onChangeMode(item.id);
-                        setOpenMenu(null);
-                      }}
-                      className={`w-full flex items-start justify-between gap-2 px-2.5 py-2 rounded-lg text-left transition-colors cursor-pointer ${
-                        selected
-                          ? 'bg-[#F3F1EA] dark:bg-[#2E2C28]'
-                          : 'hover:bg-[#FAF9F5] dark:hover:bg-[#292724]'
-                      }`}
-                    >
-                      <div className="min-w-0">
-                        <div className="text-xs font-medium text-[#1F1E1C] dark:text-[#F2EFE9]">
-                          {item.label}
-                        </div>
-                        <div className="text-[11px] text-[#7D786E] dark:text-[#969187] leading-snug mt-0.5">
-                          {item.description}
-                        </div>
-                      </div>
-                      {selected && (
-                        <Check className="w-3.5 h-3.5 text-[#C96442] dark:text-[#D97757] shrink-0 mt-0.5" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 min-w-0">
+          <ModelSelectorMenu
+            availableModels={availableModels}
+            selectedModelId={activeModel.id}
+            onChangeModel={onChangeModel}
+            onOpenGateway={onOpenGateway}
+            placement="top"
+            align="right"
+            variant="composer"
+          />
 
           {isStreaming ? (
             <button
@@ -345,7 +317,7 @@ export default function Composer({
               onClick={onStop}
               aria-label="Interromper resposta"
               title="Interromper resposta"
-              className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-[#1F1E1C] dark:bg-[#F2EFE9] text-[#FAF9F5] dark:text-[#1B1A18] hover:opacity-90 transition-opacity cursor-pointer shrink-0"
+              className="inline-flex items-center justify-center w-9 h-9 sm:w-8 sm:h-8 rounded-lg bg-[#1F1E1C] dark:bg-[#F2EFE9] text-[#FAF9F5] dark:text-[#1B1A18] hover:opacity-90 transition-opacity cursor-pointer shrink-0"
             >
               <Square className="w-3.5 h-3.5 fill-current" />
             </button>
@@ -356,7 +328,7 @@ export default function Composer({
               disabled={!canSend}
               aria-label="Enviar mensagem"
               title="Enviar mensagem (Enter)"
-              className={`inline-flex items-center justify-center w-8 h-8 rounded-lg transition-colors shrink-0 ${
+              className={`inline-flex items-center justify-center w-9 h-9 sm:w-8 sm:h-8 rounded-lg transition-colors shrink-0 ${
                 canSend
                   ? 'bg-[#C96442] hover:bg-[#B85737] dark:bg-[#D97757] dark:hover:bg-[#C96442] text-white cursor-pointer'
                   : 'bg-[#E8E4DA] dark:bg-[#32302C] text-[#A8A399] dark:text-[#635F57] cursor-not-allowed'

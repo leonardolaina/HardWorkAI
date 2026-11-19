@@ -25,6 +25,8 @@ export interface ChatMessage {
   content: string;
   attachments?: Attachment[];
   sources?: GroundingSource[];
+  modelLabel?: string;
+  routingReason?: string;
   createdAt: number;
   error?: string;
 }
@@ -65,6 +67,86 @@ export const REASONING_MODES: Array<{
     id: 'deep',
     label: 'HardWorkAI Profundo',
     description: 'Raciocínio estendido para código, análise e escrita complexa',
+  },
+];
+
+export interface AiModelChoice {
+  id: string;
+  source: 'auto' | 'builtin' | 'gateway';
+  providerId: string;
+  providerName: string;
+  modelId: string;
+  label: string;
+  shortLabel: string;
+  description: string;
+  reasoningMode?: ReasoningMode;
+}
+
+export const AUTO_ALL_AI_MODEL: AiModelChoice = {
+  id: 'auto:all',
+  source: 'auto',
+  providerId: 'auto-all',
+  providerName: 'Automático',
+  modelId: 'auto-all',
+  label: 'Automático · Todas as IAs',
+  shortLabel: 'Auto (Todas)',
+  description: 'Escolhe automaticamente entre HardWorkAI e seus provedores do Gateway',
+};
+
+export const BUILTIN_AI_MODELS: AiModelChoice[] = [
+  {
+    id: 'auto:builtin',
+    source: 'auto',
+    providerId: 'auto-builtin',
+    providerName: 'Automático',
+    modelId: 'auto-builtin',
+    label: 'Automático (Inteligente)',
+    shortLabel: 'Automático',
+    description: 'Escolhe o melhor modelo automaticamente conforme sua pergunta',
+  },
+  {
+    id: 'builtin:balanced',
+    source: 'builtin',
+    providerId: 'hardwork-builtin',
+    providerName: 'HardWorkAI',
+    modelId: 'gemini-4-hydrogen',
+    label: 'HardWorkAI 4 · Equilibrado',
+    shortLabel: 'Equilibrado',
+    description: 'Equilíbrio entre clareza, profundidade e velocidade',
+    reasoningMode: 'balanced',
+  },
+  {
+    id: 'builtin:deep',
+    source: 'builtin',
+    providerId: 'hardwork-builtin',
+    providerName: 'HardWorkAI',
+    modelId: 'gemini-4-hydrogen',
+    label: 'HardWorkAI 4 · Profundo',
+    shortLabel: 'Profundo',
+    description: 'Raciocínio estendido para código, análise e tarefas complexas',
+    reasoningMode: 'deep',
+  },
+  {
+    id: 'builtin:fast',
+    source: 'builtin',
+    providerId: 'hardwork-builtin',
+    providerName: 'HardWorkAI',
+    modelId: 'gemini-4-hydrogen',
+    label: 'HardWorkAI 4 · Rápido',
+    shortLabel: 'Rápido',
+    description: 'Respostas diretas e ágeis para o dia a dia',
+    reasoningMode: 'fast',
+  },
+  {
+    id: 'builtin:lite',
+    source: 'builtin',
+    providerId: 'hardwork-builtin',
+    providerName: 'HardWorkAI',
+    modelId: 'gemini-3.1-flash-lite',
+    label: 'HardWorkAI Lite · Veloz',
+    shortLabel: 'Lite Veloz',
+    description: 'Modelo leve de alta velocidade e baixa latência',
+    reasoningMode: 'fast',
   },
 ];
 

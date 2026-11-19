@@ -11,31 +11,52 @@ import {
   PanelLeftOpen,
   Plus,
 } from 'lucide-react';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  query,
+  runTransaction,
+  serverTimestamp,
+  where,
+} from 'firebase/firestore';
+import dynamic from 'next/dynamic';
 import { BrandLogo, BrandWordmark } from './BrandLogo';
 import Sidebar from './Sidebar';
 import Composer from './Composer';
 import MessageThread from './MessageThread';
-import ArtifactPanel from './ArtifactPanel';
-import InstructionsModal from './InstructionsModal';
+import ModelSelectorMenu from './ModelSelectorMenu';
+import { DEFAULT_PLUGINS } from './ManageViews';
+import { useFirebaseAuth, type HardWorkUser } from './FirebaseAuthProvider';
+
+const ArtifactPanel = dynamic(() => import('./ArtifactPanel'));
+const InstructionsModal = dynamic(() => import('./InstructionsModal'));
+const PluginsView = dynamic(() =>
+  import('./ManageViews').then((m) => m.PluginsView)
+);
+const AiGatewayView = dynamic(() => import('./AiGatewayView'));
+const McpConnectorsView = dynamic(() => import('./McpConnectorsView'));
+import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
+import type { McpConnectionRecord } from '@/lib/mcpCatalog';
 import {
-  DEFAULT_MCP_CONNECTORS,
-  DEFAULT_PLUGINS,
-  McpConnectorsView,
-  PluginsView,
-} from './ManageViews';
-import AiGatewayView from './AiGatewayView';
-import type { ProviderConfig } from '@/lib/providers';
-import type {
-  ActiveSection,
-  ArtifactData,
-  Attachment,
-  ChatMessage,
-  Conversation,
-  GroundingSource,
-  McpConnector,
-  PluginItem,
-  ReasoningMode,
-  ResponseStyle,
+  ALL_PROVIDERS,
+  getSelectableModels,
+  type ProviderConfig,
+} from '@/lib/providers';
+import {
+  AUTO_ALL_AI_MODEL,
+  BUILTIN_AI_MODELS,
+  type ActiveSection,
+  type AiModelChoice,
+  type ArtifactData,
+  type Attachment,
+  type ChatMessage,
+  type Conversation,
+  type GroundingSource,
+  type PluginItem,
+  type ReasoningMode,
+  type ResponseStyle,
 } from '@/lib/types';
 
 const STORAGE_KEYS = {
@@ -43,9 +64,9 @@ const STORAGE_KEYS = {
   theme: 'lume_theme_v1',
   instructions: 'lume_instructions_v1',
   mode: 'lume_mode_v1',
+  selectedModel: 'hardworkai_selected_model_v1',
   style: 'lume_style_v1',
   plugins: 'hardworkai_plugins_v1',
-  mcp: 'hardworkai_mcp_v1',
   providerConfigs: 'hardworkai_provider_configs_v1',
 };
 
@@ -166,18 +187,30 @@ function extractPreviewableArtifact(markdown: string): ArtifactData | null {
 }
 
 export default function LumeWorkspace() {
+  const {
+    user,
+    authReady,
+    signingIn,
+    authError,
+    signInWithGoogle,
+    logout,
+  } = useFirebaseAuth();
+
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<ActiveSection>('chat');
+  const [gatewayTargetProviderId, setGatewayTargetProviderId] = useState<string | null>(null);
   const [plugins, setPlugins] = useState<PluginItem[]>(DEFAULT_PLUGINS);
-  const [mcpConnectors, setMcpConnectors] =
-    useState<McpConnector[]>(DEFAULT_MCP_CONNECTORS);
+  const [mcpConnections, setMcpConnections] = useState<
+    Record<string, McpConnectionRecord>
+  >({});
   const [providerConfigs, setProviderConfigs] = useState<
     Record<string, ProviderConfig>
   >({});
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [mode, setMode] = useState<ReasoningMode>('balanced');
+  const [selectedModelId, setSelectedModelId] = useState<string>('auto:builtin');
   const [style, setStyle] = useState<ResponseStyle>('normal');
   const [webSearch, setWebSearch] = useState(false);
   const [customInstructions, setCustomInstructions] = useState('');
@@ -216,6 +249,11 @@ export default function LumeWorkspace() {
           setMode(savedMode);
         }
 
+        const savedModel = localStorage.getItem(STORAGE_KEYS.selectedModel);
+        if (savedModel) {
+          setSelectedModelId(savedModel);
+        }
+
         const savedStyle = localStorage.getItem(STORAGE_KEYS.style) as ResponseStyle | null;
         if (
           savedStyle &&
@@ -228,12 +266,6 @@ export default function LumeWorkspace() {
         if (savedPlugins) {
           const parsed = JSON.parse(savedPlugins) as PluginItem[];
           if (Array.isArray(parsed) && parsed.length > 0) setPlugins(parsed);
-        }
-
-        const savedMcp = localStorage.getItem(STORAGE_KEYS.mcp);
-        if (savedMcp) {
-          const parsed = JSON.parse(savedMcp) as McpConnector[];
-          if (Array.isArray(parsed)) setMcpConnectors(parsed);
         }
 
         const savedProviderConfigs = localStorage.getItem(
@@ -296,7 +328,6 @@ export default function LumeWorkspace() {
     if (!hydrated) return;
     try {
       localStorage.setItem(STORAGE_KEYS.plugins, JSON.stringify(plugins));
-      localStorage.setItem(STORAGE_KEYS.mcp, JSON.stringify(mcpConnectors));
       localStorage.setItem(
         STORAGE_KEYS.providerConfigs,
         JSON.stringify(providerConfigs)
@@ -304,7 +335,201 @@ export default function LumeWorkspace() {
     } catch {
       // ignore storage errors
     }
-  }, [plugins, mcpConnectors, providerConfigs, hydrated]);
+  }, [plugins, providerConfigs, hydrated]);
+
+  // Real-time Firestore listener for account-bound MCP connections
+  useEffect(() => {
+    if (!authReady || !user || !user.emailVerified || !user.email) {
+      const frame = window.requestAnimationFrame(() => {
+        setMcpConnections({});
+      });
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    const colPath = `users/${user.uid}/mcpConnections`;
+    const q = query(
+      collection(db, 'users', user.uid, 'mcpConnections'),
+      where('ownerUid', '==', user.uid),
+      where('accountEmail', '==', user.email)
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const next: Record<string, McpConnectionRecord> = {};
+        snapshot.forEach((docSnap) => {
+          const d = docSnap.data();
+          next[docSnap.id] = {
+            connectorId: String(d.connectorId || docSnap.id),
+            name: String(d.name || ''),
+            description: String(d.description || ''),
+            endpoint: String(d.endpoint || ''),
+            transport: (d.transport as McpConnectionRecord['transport']) || 'streamable-http',
+            approvedAppsOnly: Boolean(d.approvedAppsOnly),
+            custom: Boolean(d.custom),
+            ownerUid: String(d.ownerUid || user.uid),
+            accountEmail: String(d.accountEmail || user.email),
+            everyoneInOrg: Boolean(d.everyoneInOrg),
+            people: Array.isArray(d.people) ? d.people.map(String) : [],
+            teams: Array.isArray(d.teams) ? d.teams.map(String) : [],
+            toolsSelection: d.toolsSelection === 'picked' ? 'picked' : 'all',
+            selectedTools: Array.isArray(d.selectedTools)
+              ? d.selectedTools.map(String)
+              : [],
+            connected: Boolean(d.connected),
+          };
+        });
+        setMcpConnections(next);
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, colPath);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [authReady, user]);
+
+  const handleSaveMcpConnection = useCallback(
+    async (
+      record: Omit<McpConnectionRecord, 'ownerUid' | 'accountEmail'>,
+      targetUser?: HardWorkUser
+    ) => {
+      const activeUser = targetUser || user;
+      if (!activeUser || !activeUser.emailVerified) {
+        throw new Error('Entre com sua conta verificada da HardWorkAI para salvar.');
+      }
+
+      const safeId = record.connectorId
+        .replace(/[^a-zA-Z0-9_-]/g, '-')
+        .slice(0, 128);
+      const docPath = `users/${activeUser.uid}/mcpConnections/${safeId}`;
+      const ref = doc(db, 'users', activeUser.uid, 'mcpConnections', safeId);
+
+      try {
+        const sanitizedPeople = record.people
+          .map((p) => p.trim().slice(0, 120))
+          .filter(Boolean)
+          .slice(0, 50);
+        const sanitizedTeams = record.teams
+          .map((t) => t.trim().slice(0, 120))
+          .filter(Boolean)
+          .slice(0, 50);
+        const sanitizedTools =
+          record.toolsSelection === 'picked'
+            ? record.selectedTools
+                .map((t) => t.trim().slice(0, 120))
+                .filter(Boolean)
+                .slice(0, 50)
+            : [];
+
+        await runTransaction(db, async (tx) => {
+          const existingSnap = await tx.get(ref);
+          if (!existingSnap.exists()) {
+            tx.set(ref, {
+              connectorId: safeId,
+              name: record.name.trim().slice(0, 120),
+              description: record.description.trim().slice(0, 500),
+              endpoint: record.endpoint.trim().slice(0, 500),
+              transport: record.transport,
+              approvedAppsOnly: Boolean(record.approvedAppsOnly),
+              custom: Boolean(record.custom),
+              ownerUid: activeUser.uid,
+              accountEmail: activeUser.email,
+              everyoneInOrg: Boolean(record.everyoneInOrg),
+              people: sanitizedPeople,
+              teams: sanitizedTeams,
+              toolsSelection: record.toolsSelection,
+              selectedTools: sanitizedTools,
+              connected: Boolean(record.connected),
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+          } else {
+            tx.update(ref, {
+              name: record.name.trim().slice(0, 120),
+              description: record.description.trim().slice(0, 500),
+              endpoint: record.endpoint.trim().slice(0, 500),
+              transport: record.transport,
+              everyoneInOrg: Boolean(record.everyoneInOrg),
+              people: sanitizedPeople,
+              teams: sanitizedTeams,
+              toolsSelection: record.toolsSelection,
+              selectedTools: sanitizedTools,
+              connected: Boolean(record.connected),
+              updatedAt: serverTimestamp(),
+            });
+          }
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, docPath);
+      }
+    },
+    [user]
+  );
+
+  const handleDeleteMcpConnection = useCallback(
+    async (connectorId: string) => {
+      if (!user) return;
+      const safeId = connectorId.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 128);
+      const docPath = `users/${user.uid}/mcpConnections/${safeId}`;
+      try {
+        await deleteDoc(doc(db, 'users', user.uid, 'mcpConnections', safeId));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, docPath);
+      }
+    },
+    [user]
+  );
+
+  const availableModels = useMemo<AiModelChoice[]>(() => {
+    const gatewayChoices: AiModelChoice[] = [];
+
+    for (const [providerId, cfg] of Object.entries(providerConfigs)) {
+      if (!cfg?.enabled || !cfg.apiKey?.trim()) continue;
+      const providerDef = ALL_PROVIDERS.find((p) => p.id === providerId);
+      if (!providerDef) continue;
+
+      const allProviderModels = getSelectableModels(providerDef);
+      const enabledModels =
+        cfg.modelSelection === 'picked' && cfg.selectedModels.length > 0
+          ? cfg.selectedModels
+          : allProviderModels;
+
+      for (const modelName of enabledModels) {
+        const cleanShort = modelName.includes('/')
+          ? modelName.split('/').pop() || modelName
+          : modelName;
+        gatewayChoices.push({
+          id: `gateway:${providerId}:${modelName}`,
+          source: 'gateway',
+          providerId,
+          providerName: providerDef.name,
+          modelId: modelName,
+          label: `${providerDef.name} · ${cleanShort}`,
+          shortLabel: cleanShort,
+          description: `${providerDef.name} · ${modelName}`,
+        });
+      }
+    }
+
+    if (gatewayChoices.length > 0) {
+      return [
+        BUILTIN_AI_MODELS[0],
+        AUTO_ALL_AI_MODEL,
+        ...BUILTIN_AI_MODELS.slice(1),
+        ...gatewayChoices,
+      ];
+    }
+
+    return [...BUILTIN_AI_MODELS];
+  }, [providerConfigs]);
+
+  const activeModel = useMemo<AiModelChoice>(
+    () =>
+      availableModels.find((m) => m.id === selectedModelId) ??
+      BUILTIN_AI_MODELS[0],
+    [availableModels, selectedModelId]
+  );
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
@@ -323,8 +548,15 @@ export default function LumeWorkspace() {
           enabledPlugins.map((p) => `- ${p.name}: ${p.instruction}`).join('\n')
       );
     }
+    const activeMcps = Object.values(mcpConnections).filter((m) => m.connected);
+    if (activeMcps.length > 0) {
+      blocks.push(
+        `Conectores MCP vinculados à conta (${user?.email || 'HardWorkAI'}):\n` +
+          activeMcps.map((m) => `- ${m.name} (${m.endpoint})`).join('\n')
+      );
+    }
     return blocks.join('\n\n');
-  }, [customInstructions, plugins]);
+  }, [customInstructions, mcpConnections, plugins, user?.email]);
 
   const scrollToBottom = useCallback(() => {
     const el = scrollContainerRef.current;
@@ -357,10 +589,23 @@ export default function LumeWorkspace() {
     }
   };
 
-  const handleChangeMode = (nextMode: ReasoningMode) => {
-    setMode(nextMode);
+  const handleOpenGateway = useCallback((providerId?: string) => {
+    setGatewayTargetProviderId(providerId ?? null);
+    setActiveSection('gateway');
+    setActiveArtifact(null);
+  }, []);
+
+  const handleChangeModel = (nextModelId: string) => {
+    setSelectedModelId(nextModelId);
+    const chosen = availableModels.find((m) => m.id === nextModelId);
+    if (chosen?.reasoningMode) {
+      setMode(chosen.reasoningMode);
+    }
     try {
-      localStorage.setItem(STORAGE_KEYS.mode, nextMode);
+      localStorage.setItem(STORAGE_KEYS.selectedModel, nextModelId);
+      if (chosen?.reasoningMode) {
+        localStorage.setItem(STORAGE_KEYS.mode, chosen.reasoningMode);
+      }
     } catch {
       // ignore
     }
@@ -451,6 +696,24 @@ export default function LumeWorkspace() {
       let collectedSources: GroundingSource[] = [];
 
       try {
+        const activeProviderCfg =
+          activeModel.source === 'gateway'
+            ? providerConfigs[activeModel.providerId]
+            : undefined;
+
+        const gatewayCandidates =
+          activeModel.id === 'auto:all'
+            ? availableModels
+                .filter((m) => m.source === 'gateway')
+                .map((m) => ({
+                  providerId: m.providerId,
+                  providerName: m.providerName,
+                  modelId: m.modelId,
+                  apiKey: providerConfigs[m.providerId]?.apiKey || '',
+                }))
+                .filter((c) => c.apiKey.trim().length > 0)
+            : [];
+
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -461,10 +724,19 @@ export default function LumeWorkspace() {
               content: m.content,
               attachments: m.attachments,
             })),
-            mode,
+            mode: activeModel.reasoningMode ?? mode,
             style,
             webSearch,
             customInstructions: effectiveInstructions,
+            selectedModel: {
+              source: activeModel.source,
+              providerId: activeModel.providerId,
+              modelId: activeModel.modelId,
+              ...(activeProviderCfg?.apiKey
+                ? { apiKey: activeProviderCfg.apiKey }
+                : {}),
+            },
+            ...(gatewayCandidates.length > 0 ? { gatewayCandidates } : {}),
           }),
         });
 
@@ -501,6 +773,8 @@ export default function LumeWorkspace() {
               type: string;
               text?: string;
               sources?: GroundingSource[];
+              modelLabel?: string;
+              reason?: string;
               message?: string;
             };
             try {
@@ -509,7 +783,28 @@ export default function LumeWorkspace() {
               continue;
             }
 
-            if (payload.type === 'delta' && payload.text) {
+            if (payload.type === 'model' && payload.modelLabel) {
+              const routedLabel = payload.modelLabel;
+              const routedReason = payload.reason;
+              setConversations((prev) =>
+                prev.map((c) =>
+                  c.id === convId
+                    ? {
+                        ...c,
+                        messages: c.messages.map((m) =>
+                          m.id === assistantMessageId
+                            ? {
+                                ...m,
+                                modelLabel: routedLabel,
+                                routingReason: routedReason,
+                              }
+                            : m
+                        ),
+                      }
+                    : c
+                )
+              );
+            } else if (payload.type === 'delta' && payload.text) {
               accumulatedText += payload.text;
               const currentText = accumulatedText;
               setConversations((prev) =>
@@ -600,7 +895,17 @@ export default function LumeWorkspace() {
         abortControllerRef.current = null;
       }
     },
-    [effectiveInstructions, mode, requestAutoTitle, scrollToBottom, style, webSearch]
+    [
+      activeModel,
+      availableModels,
+      effectiveInstructions,
+      mode,
+      providerConfigs,
+      requestAutoTitle,
+      scrollToBottom,
+      style,
+      webSearch,
+    ]
   );
 
   const handleSend = useCallback(
@@ -621,6 +926,7 @@ export default function LumeWorkspace() {
         id: createId(),
         role: 'assistant',
         content: '',
+        modelLabel: activeModel.label,
         createdAt: Date.now() + 1,
       };
 
@@ -677,7 +983,15 @@ export default function LumeWorkspace() {
         textToSend || filesToSend[0]?.name || ''
       );
     },
-    [activeId, attachments, conversations, input, isStreaming, streamAssistantReply]
+    [
+      activeId,
+      activeModel.label,
+      attachments,
+      conversations,
+      input,
+      isStreaming,
+      streamAssistantReply,
+    ]
   );
 
   const handleStop = () => {
@@ -697,6 +1011,7 @@ export default function LumeWorkspace() {
       id: createId(),
       role: 'assistant',
       content: '',
+      modelLabel: activeModel.label,
       createdAt: Date.now(),
     };
 
@@ -736,6 +1051,7 @@ export default function LumeWorkspace() {
       id: createId(),
       role: 'assistant',
       content: '',
+      modelLabel: activeModel.label,
       createdAt: Date.now(),
     };
 
@@ -815,8 +1131,12 @@ export default function LumeWorkspace() {
         activeId={activeId}
         activeSection={activeSection}
         activePluginsCount={plugins.filter((p) => p.enabled).length}
-        connectedMcpCount={mcpConnectors.filter((c) => c.connected).length}
+        connectedMcpCount={
+          Object.values(mcpConnections).filter((c) => c.connected).length
+        }
         configuredProvidersCount={Object.keys(providerConfigs).length}
+        user={user}
+        signingIn={signingIn}
         isOpen={sidebarOpen}
         isDark={isDark}
         hasCustomInstructions={customInstructions.trim().length > 0}
@@ -860,6 +1180,8 @@ export default function LumeWorkspace() {
         onClose={() => setSidebarOpen(false)}
         onToggleTheme={handleToggleTheme}
         onOpenInstructions={() => setInstructionsOpen(true)}
+        onSignIn={() => void signInWithGoogle()}
+        onLogout={() => void logout()}
       />
 
       <div className="flex-1 flex min-w-0 h-full overflow-hidden">
@@ -881,12 +1203,24 @@ export default function LumeWorkspace() {
               {!sidebarOpen && (isEmptyState || activeSection !== 'chat') && (
                 <div className="flex items-center gap-2 shrink-0">
                   <BrandLogo size="sm" />
-                  <BrandWordmark className="text-[1.05rem]" />
+                  <BrandWordmark className="text-[1.05rem] hidden sm:inline" />
                 </div>
               )}
 
+              {activeSection === 'chat' && (
+                <ModelSelectorMenu
+                  availableModels={availableModels}
+                  selectedModelId={activeModel.id}
+                  onChangeModel={handleChangeModel}
+                  onOpenGateway={handleOpenGateway}
+                  placement="bottom"
+                  align="left"
+                  variant="header"
+                />
+              )}
+
               {activeSection === 'chat' && !isEmptyState && activeConversation && (
-                <h1 className="text-sm font-medium text-[#3F3D37] dark:text-[#D5D0C6] truncate">
+                <h1 className="hidden md:block text-sm font-medium text-[#3F3D37] dark:text-[#D5D0C6] truncate">
                   {activeConversation.title}
                 </h1>
               )}
@@ -960,24 +1294,23 @@ export default function LumeWorkspace() {
           ) : activeSection === 'mcp' ? (
             <div className="flex-1 overflow-y-auto">
               <McpConnectorsView
-                connectors={mcpConnectors}
-                onToggleConnector={(id) =>
-                  setMcpConnectors((prev) =>
-                    prev.map((c) =>
-                      c.id === id ? { ...c, connected: !c.connected } : c
-                    )
-                  )
-                }
-                onAddConnector={(conn) => setMcpConnectors((prev) => [conn, ...prev])}
-                onDeleteConnector={(id) =>
-                  setMcpConnectors((prev) => prev.filter((c) => c.id !== id))
-                }
+                user={user}
+                authReady={authReady}
+                signingIn={signingIn}
+                authError={authError}
+                connections={mcpConnections}
+                onSignIn={signInWithGoogle}
+                onSaveConnection={handleSaveMcpConnection}
+                onDeleteConnection={handleDeleteMcpConnection}
               />
             </div>
           ) : activeSection === 'gateway' ? (
             <div className="flex-1 overflow-y-auto">
               <AiGatewayView
+                key={gatewayTargetProviderId ?? 'catalog'}
                 configs={providerConfigs}
+                initialProviderId={gatewayTargetProviderId}
+                onClearInitialProvider={() => setGatewayTargetProviderId(null)}
                 onSaveConfig={(cfg) =>
                   setProviderConfigs((prev) => ({
                     ...prev,
@@ -1011,7 +1344,8 @@ export default function LumeWorkspace() {
                 <Composer
                   value={input}
                   attachments={attachments}
-                  mode={mode}
+                  availableModels={availableModels}
+                  selectedModelId={activeModel.id}
                   style={style}
                   webSearch={webSearch}
                   isStreaming={isStreaming}
@@ -1021,9 +1355,10 @@ export default function LumeWorkspace() {
                   onRemoveAttachment={(id) =>
                     setAttachments((prev) => prev.filter((a) => a.id !== id))
                   }
-                  onChangeMode={handleChangeMode}
+                  onChangeModel={handleChangeModel}
                   onChangeStyle={handleChangeStyle}
                   onToggleWebSearch={() => setWebSearch((w) => !w)}
+                  onOpenGateway={handleOpenGateway}
                   onSend={() => handleSend()}
                   onStop={handleStop}
                 />
@@ -1061,12 +1396,13 @@ export default function LumeWorkspace() {
                 />
               </div>
 
-              <div className="shrink-0 px-4 sm:px-6 pb-4 pt-2 bg-gradient-to-t from-[#FAF9F5] via-[#FAF9F5] to-transparent dark:from-[#1B1A18] dark:via-[#1B1A18]">
+              <div className="shrink-0 px-3 sm:px-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-4 pt-2 bg-gradient-to-t from-[#FAF9F5] via-[#FAF9F5] to-transparent dark:from-[#1B1A18] dark:via-[#1B1A18]">
                 <div className="w-full max-w-[740px] mx-auto">
                   <Composer
                     value={input}
                     attachments={attachments}
-                    mode={mode}
+                    availableModels={availableModels}
+                    selectedModelId={activeModel.id}
                     style={style}
                     webSearch={webSearch}
                     isStreaming={isStreaming}
@@ -1076,9 +1412,10 @@ export default function LumeWorkspace() {
                     onRemoveAttachment={(id) =>
                       setAttachments((prev) => prev.filter((a) => a.id !== id))
                     }
-                    onChangeMode={handleChangeMode}
+                    onChangeModel={handleChangeModel}
                     onChangeStyle={handleChangeStyle}
                     onToggleWebSearch={() => setWebSearch((w) => !w)}
+                    onOpenGateway={handleOpenGateway}
                     onSend={() => handleSend()}
                     onStop={handleStop}
                   />

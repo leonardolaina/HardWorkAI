@@ -33,6 +33,8 @@ import { REFERENCE_LINKS } from './ManageViews';
 
 interface AiGatewayViewProps {
   configs: Record<string, ProviderConfig>;
+  initialProviderId?: string | null;
+  onClearInitialProvider?: () => void;
   onSaveConfig: (config: ProviderConfig) => void;
   onDeleteConfig: (providerId: string) => void;
 }
@@ -662,10 +664,14 @@ function ProviderConfigScreen({
 
 export default function AiGatewayView({
   configs,
+  initialProviderId = null,
+  onClearInitialProvider,
   onSaveConfig,
   onDeleteConfig,
 }: AiGatewayViewProps) {
-  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(
+    initialProviderId
+  );
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'featured' | 'configured'>('all');
 
@@ -708,7 +714,10 @@ export default function AiGatewayView({
         hasExistingConfig={Boolean(existing)}
         onSave={onSaveConfig}
         onDelete={onDeleteConfig}
-        onCancel={() => setSelectedProviderId(null)}
+        onCancel={() => {
+          setSelectedProviderId(null);
+          onClearInitialProvider?.();
+        }}
       />
     );
   }
