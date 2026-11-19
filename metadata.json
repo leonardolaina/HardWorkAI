@@ -1,0 +1,6 @@
+{
+  "name": "Lume — Assistente de IA",
+  "description": "Uma inteligência artificial com interface editorial simples, limpa e funcional inspirada na Claude, com streaming em tempo real, anexos multimodais, busca na web e painel de artefatos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
