@@ -303,7 +303,8 @@ async function streamAnthropic(
         role: m.role === 'assistant' ? 'assistant' : 'user',
         content: blocks,
       };
-    });
+    })
+    .filter((m) => m.content.length > 0);
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',

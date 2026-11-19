@@ -1056,7 +1056,11 @@ export default function LumeWorkspace() {
         connectedMcpCount={
           Object.values(mcpConnections).filter((c) => c.connected).length
         }
-        configuredProvidersCount={Object.keys(providerConfigs).length}
+        configuredProvidersCount={
+          Object.values(providerConfigs).filter(
+            (c) => c.enabled && (c.apiKey.trim().length > 0 || c.keyMode === 'member')
+          ).length
+        }
         user={user}
         signingIn={signingIn}
         isOpen={sidebarOpen}
@@ -1405,6 +1409,7 @@ export default function LumeWorkspace() {
 
         {activeArtifact && (
           <ArtifactPanel
+            key={activeArtifact.id}
             artifact={activeArtifact}
             onClose={() => setActiveArtifact(null)}
           />

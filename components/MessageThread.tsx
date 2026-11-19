@@ -75,6 +75,16 @@ export default function MessageThread({
                   <textarea
                     value={editDraft}
                     onChange={(e) => setEditDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        e.preventDefault();
+                        setEditingId(null);
+                        setEditDraft('');
+                      } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                        e.preventDefault();
+                        saveEdit();
+                      }
+                    }}
                     rows={3}
                     autoFocus
                     className="w-full bg-transparent text-[0.95rem] leading-relaxed text-[#1F1E1C] dark:text-[#F2EFE9] resize-none focus:outline-none"

@@ -197,32 +197,3 @@ export interface PluginItem {
 }
 
 export type McpTransport = 'streamable-http' | 'sse' | 'stdio';
-
-export interface McpConnector {
-  id: string;
-  name: string;
-  endpoint: string;
-  transport: McpTransport;
-  authType: 'none' | 'bearer' | 'oauth';
-  description: string;
-  toolsCount: number;
-  connected: boolean;
-}
-
-export interface GatewayRoute {
-  id: string;
-  name: string;
-  mode: ReasoningMode;
-  targetLabel: string;
-  priority: number;
-  timeoutMs: number;
-  enabled: boolean;
-  custom?: boolean;
-}
-
-export interface GatewaySettings {
-  autoFallback: boolean;
-  injectActivePlugins: boolean;
-  defaultWebSearch: boolean;
-}
-

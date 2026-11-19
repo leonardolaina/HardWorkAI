@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import Image from 'next/image';
 import {
   AlertCircle,
   ArrowLeft,
@@ -9,6 +10,7 @@ import {
   CheckCircle2,
   ExternalLink,
   Globe,
+  Languages,
   Loader2,
   Lock,
   LogIn,
@@ -21,13 +23,66 @@ import {
   X,
 } from 'lucide-react';
 import {
+  getMcpDisplayName,
   MCP_CATALOG,
   type McpCatalogItem,
   type McpConnectionRecord,
+  type McpNameLanguage,
 } from '@/lib/mcpCatalog';
 import type { McpTransport } from '@/lib/types';
 import type { HardWorkUser } from './FirebaseAuthProvider';
 import { REFERENCE_LINKS } from './ManageViews';
+
+const MCP_LANG_STORAGE_KEY = 'hardworkai_mcp_name_lang_v1';
+
+function ConnectorLogo({
+  logoUrl,
+  monogram,
+  alt,
+  size = 'md',
+}: {
+  logoUrl?: string;
+  monogram: string;
+  alt: string;
+  size?: 'md' | 'lg';
+}) {
+  const [failed, setFailed] = useState(false);
+
+  const boxClass =
+    size === 'lg'
+      ? 'w-11 h-11 rounded-xl p-2'
+      : 'w-9 h-9 rounded-lg p-1.5';
+  const imgPx = size === 'lg' ? 28 : 24;
+  const imgClass = size === 'lg' ? 'w-7 h-7 object-contain' : 'w-6 h-6 object-contain';
+
+  if (logoUrl && !failed) {
+    return (
+      <div
+        className={`${boxClass} bg-white border border-[#E5E1D8] dark:border-[#3A3834] shadow-2xs flex items-center justify-center shrink-0 overflow-hidden`}
+      >
+        <Image
+          src={logoUrl}
+          alt={`Logo ${alt}`}
+          width={imgPx}
+          height={imgPx}
+          referrerPolicy="no-referrer"
+          className={imgClass}
+          onError={() => setFailed(true)}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`${
+        size === 'lg' ? 'w-11 h-11 rounded-xl text-sm' : 'w-9 h-9 rounded-lg text-xs'
+      } bg-[#F3F1EA] dark:bg-[#2B2926] border border-[#E5E1D8] dark:border-[#36342F] flex items-center justify-center font-semibold text-[#3F3D37] dark:text-[#DFDBD2] shrink-0 font-serif`}
+    >
+      {monogram}
+    </div>
+  );
+}
 
 interface McpConnectorsViewProps {
   user: HardWorkUser | null;
@@ -58,6 +113,7 @@ function McpConfigScreen({
   item,
   existing,
   isCustom,
+  nameLang,
   user,
   signingIn,
   onSignIn,
@@ -68,6 +124,7 @@ function McpConfigScreen({
   item: McpCatalogItem;
   existing?: McpConnectionRecord;
   isCustom: boolean;
+  nameLang: McpNameLanguage;
   user: HardWorkUser | null;
   signingIn: boolean;
   onSignIn: () => Promise<HardWorkUser | null>;
@@ -78,7 +135,10 @@ function McpConfigScreen({
   onDelete: (connectorId: string) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [name, setName] = useState(existing?.name || item.name);
+  const displayName = getMcpDisplayName(item, nameLang);
+  const [name, setName] = useState(
+    isCustom ? existing?.name || item.name : displayName
+  );
   const [description, setDescription] = useState(
     existing?.description || item.description
   );
@@ -291,22 +351,34 @@ function McpConfigScreen({
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Voltar para conectores</span>
           </button>
-          <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
-            <h1 className="font-serif text-2xl font-medium tracking-tight text-[#1F1E1C] dark:text-[#F2EFE9]">
-              {isCustom && !existing ? 'Adicionar outro MCP' : name}
-            </h1>
-            {item.approvedAppsOnly && (
-              <span className="inline-flex items-center gap-1 text-xs text-[#7D786E] dark:text-[#969187]">
-                <ShieldCheck className="w-3.5 h-3.5 text-[#C96442] dark:text-[#D97757]" />
-                <span>Somente aplicativos aprovados</span>
-              </span>
+          <div className="flex items-center gap-3 pt-1">
+            {!isCustom && (
+              <ConnectorLogo
+                logoUrl={item.logoUrl}
+                monogram={item.monogram}
+                alt={displayName}
+                size="lg"
+              />
             )}
+            <div className="space-y-0.5 min-w-0">
+              <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+                <h1 className="font-serif text-2xl font-medium tracking-tight text-[#1F1E1C] dark:text-[#F2EFE9]">
+                  {isCustom && !existing ? 'Adicionar outro MCP' : name}
+                </h1>
+                {item.approvedAppsOnly && (
+                  <span className="inline-flex items-center gap-1 text-xs text-[#7D786E] dark:text-[#969187]">
+                    <ShieldCheck className="w-3.5 h-3.5 text-[#C96442] dark:text-[#D97757]" />
+                    <span>Somente aplicativos aprovados</span>
+                  </span>
+                )}
+              </div>
+              {!isCustom && (
+                <p className="text-xs text-[#6B675E] dark:text-[#A19C92]">
+                  {item.description}
+                </p>
+              )}
+            </div>
           </div>
-          {!isCustom && (
-            <p className="text-xs text-[#6B675E] dark:text-[#A19C92]">
-              {item.description}
-            </p>
-          )}
         </div>
 
         {existing && (
@@ -798,10 +870,29 @@ export default function McpConnectorsView({
 }: McpConnectorsViewProps) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'connected'>('all');
+  const [nameLang, setNameLang] = useState<McpNameLanguage>(() => {
+    if (typeof window === 'undefined') return 'en';
+    try {
+      const saved = window.localStorage.getItem(MCP_LANG_STORAGE_KEY);
+      if (saved === 'en' || saved === 'pt') return saved;
+    } catch {
+      // ignore storage errors
+    }
+    return 'en';
+  });
   const [activeSelection, setActiveSelection] = useState<{
     item: McpCatalogItem;
     isCustom: boolean;
   } | null>(null);
+
+  const handleChangeNameLang = (next: McpNameLanguage) => {
+    setNameLang(next);
+    try {
+      window.localStorage.setItem(MCP_LANG_STORAGE_KEY, next);
+    } catch {
+      // ignore storage errors
+    }
+  };
 
   const connectedList = useMemo(
     () => Object.values(connections).filter((c) => c.connected),
@@ -821,7 +912,9 @@ export default function McpConnectorsView({
       }
       if (!q) return true;
       return (
-        item.name.toLowerCase().includes(q) ||
+        item.nameEn.toLowerCase().includes(q) ||
+        item.namePt.toLowerCase().includes(q) ||
+        item.id.toLowerCase().includes(q) ||
         item.description.toLowerCase().includes(q)
       );
     });
@@ -841,10 +934,11 @@ export default function McpConnectorsView({
     const existing = connections[activeSelection.item.id];
     return (
       <McpConfigScreen
-        key={activeSelection.item.id}
+        key={`${activeSelection.item.id}-${nameLang}`}
         item={activeSelection.item}
         existing={existing}
         isCustom={activeSelection.isCustom}
+        nameLang={nameLang}
         user={user}
         signingIn={signingIn}
         onSignIn={onSignIn}
@@ -892,6 +986,8 @@ export default function McpConnectorsView({
                 item: {
                   id: `custom-${Date.now()}`,
                   name: '',
+                  nameEn: '',
+                  namePt: '',
                   description: '',
                   defaultEndpoint: '',
                   defaultTransport: 'streamable-http',
@@ -967,15 +1063,15 @@ export default function McpConnectorsView({
         </div>
       )}
 
-      {/* Search & Filter Row */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* Search, Name Language Toggle & Filter Row */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="relative flex-1 max-w-md">
           <Search className="w-4 h-4 text-[#8D887E] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filtrar por nome"
+            placeholder="Filtrar por nome (EN ou PT)"
             aria-label="Filtrar conectores MCP por nome"
             className="w-full pl-9 pr-8 py-2 rounded-lg border border-[#E2DDD2] dark:border-[#32302C] bg-white dark:bg-[#22211E] text-sm text-[#1F1E1C] dark:text-[#F2EFE9] placeholder:text-[#8D887E] focus:outline-none focus:border-[#C96442]"
           />
@@ -991,26 +1087,59 @@ export default function McpConnectorsView({
           )}
         </div>
 
-        <div className="flex items-center gap-1 p-1 rounded-lg bg-[#EFECE3] dark:bg-[#242320] w-fit">
-          {(
-            [
-              { id: 'all', label: 'Todos' },
-              { id: 'connected', label: `Conectados (${connectedList.length})` },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setFilter(tab.id)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                filter === tab.id
-                  ? 'bg-white dark:bg-[#34322E] text-[#1F1E1C] dark:text-[#F2EFE9] shadow-xs'
-                  : 'text-[#6B675E] dark:text-[#A19C92] hover:text-[#1F1E1C] dark:hover:text-[#F2EFE9]'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            role="group"
+            aria-label="Idioma dos nomes das aplicações"
+            className="inline-flex items-center gap-1 p-1 rounded-lg bg-[#EFECE3] dark:bg-[#242320] w-fit"
+          >
+            <span className="inline-flex items-center gap-1 pl-2 pr-1 text-[11px] font-medium text-[#7D786E] dark:text-[#969187] select-none">
+              <Languages className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Nomes:</span>
+            </span>
+            {(
+              [
+                { id: 'en', label: 'Inglês' },
+                { id: 'pt', label: 'Português' },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                aria-pressed={nameLang === opt.id}
+                onClick={() => handleChangeNameLang(opt.id)}
+                className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  nameLang === opt.id
+                    ? 'bg-white dark:bg-[#34322E] text-[#1F1E1C] dark:text-[#F2EFE9] shadow-xs'
+                    : 'text-[#6B675E] dark:text-[#A19C92] hover:text-[#1F1E1C] dark:hover:text-[#F2EFE9]'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-[#EFECE3] dark:bg-[#242320] w-fit">
+            {(
+              [
+                { id: 'all', label: 'Todos' },
+                { id: 'connected', label: `Conectados (${connectedList.length})` },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setFilter(tab.id)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  filter === tab.id
+                    ? 'bg-white dark:bg-[#34322E] text-[#1F1E1C] dark:text-[#F2EFE9] shadow-xs'
+                    : 'text-[#6B675E] dark:text-[#A19C92] hover:text-[#1F1E1C] dark:hover:text-[#F2EFE9]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -1052,6 +1181,8 @@ export default function McpConnectorsView({
                       item: {
                         id: conn.connectorId,
                         name: conn.name,
+                        nameEn: conn.name,
+                        namePt: conn.name,
                         description: conn.description,
                         defaultEndpoint: conn.endpoint,
                         defaultTransport: conn.transport,
@@ -1089,19 +1220,22 @@ export default function McpConnectorsView({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {filteredCatalog.map((item) => {
             const isConnected = Boolean(connections[item.id]?.connected);
+            const displayName = getMcpDisplayName(item, nameLang);
             return (
               <div
                 key={item.id}
                 className="flex items-start justify-between gap-4 rounded-xl border border-[#E5E1D8] dark:border-[#2E2C28] bg-white dark:bg-[#22211E] hover:border-[#CBC5B8] dark:hover:border-[#423F39] p-4 transition-colors"
               >
                 <div className="flex items-start gap-3 min-w-0">
-                  <div className="w-9 h-9 rounded-lg bg-[#F3F1EA] dark:bg-[#2B2926] border border-[#E5E1D8] dark:border-[#36342F] flex items-center justify-center text-xs font-semibold text-[#3F3D37] dark:text-[#DFDBD2] shrink-0 font-serif">
-                    {item.monogram}
-                  </div>
+                  <ConnectorLogo
+                    logoUrl={item.logoUrl}
+                    monogram={item.monogram}
+                    alt={displayName}
+                  />
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                       <h3 className="text-[0.94rem] font-semibold text-[#1F1E1C] dark:text-[#F2EFE9]">
-                        {item.name}
+                        {displayName}
                       </h3>
                       {isConnected && (
                         <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">

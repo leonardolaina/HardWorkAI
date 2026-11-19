@@ -172,10 +172,21 @@ export default function MarkdownRenderer({
               </code>
             );
           },
+          table({ children, ...props }) {
+            return (
+              <div className="my-4 overflow-x-auto rounded-lg border border-[#E5E1D8] dark:border-[#2E2C28]">
+                <table {...props} className="!my-0">
+                  {children}
+                </table>
+              </div>
+            );
+          },
           a({ href, children, ...props }) {
+            const safeHref =
+              href && /^(https?:|mailto:|#|\/)/i.test(href.trim()) ? href : undefined;
             return (
               <a
-                href={href}
+                href={safeHref}
                 target="_blank"
                 rel="noopener noreferrer"
                 {...props}

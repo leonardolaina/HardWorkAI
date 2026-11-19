@@ -196,10 +196,11 @@ export function FirebaseAuthProvider({
           setUser(mapped);
         } catch (err) {
           setUser(mapped);
+          const rawMsg = err instanceof Error ? err.message : '';
           setAuthError(
-            err instanceof Error
-              ? err.message
-              : 'Não foi possível sincronizar o perfil da conta.'
+            rawMsg && !rawMsg.trim().startsWith('{')
+              ? rawMsg
+              : 'Não foi possível sincronizar o perfil da conta no momento.'
           );
         }
       } else {
@@ -218,8 +219,12 @@ export function FirebaseAuthProvider({
       const result = await signInWithPopup(auth, googleProvider);
       await result.user.getIdToken();
       const mapped = toHardWorkUser(result.user);
-      await syncUserAccountDoc(mapped);
       setUser(mapped);
+      try {
+        await syncUserAccountDoc(mapped);
+      } catch {
+        setAuthError('Conta conectada, mas não foi possível sincronizar o perfil agora.');
+      }
       return mapped;
     } catch (err) {
       const code = (err as { code?: string })?.code || '';
@@ -230,9 +235,10 @@ export function FirebaseAuthProvider({
           'O navegador bloqueou a janela de login. Permita pop-ups para entrar na sua conta HardWorkAI.'
         );
       } else {
+        const rawMsg = err instanceof Error ? err.message : '';
         setAuthError(
-          err instanceof Error
-            ? err.message
+          rawMsg && !rawMsg.trim().startsWith('{')
+            ? rawMsg
             : 'Não foi possível concluir o login com Google.'
         );
       }

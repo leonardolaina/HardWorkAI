@@ -201,7 +201,7 @@ export function routeRequestModel(params: {
       providerId: 'hardwork-builtin',
       modelId: 'gemini-4-hydrogen',
       reasoningMode: 'deep',
-      modelLabel: 'Automático → HardWorkAI 4 · Profundo',
+      modelLabel: 'Automático → Gemini · Profundo',
       reason,
     };
   }
@@ -212,7 +212,7 @@ export function routeRequestModel(params: {
       providerId: 'hardwork-builtin',
       modelId: 'gemini-3.1-flash-lite',
       reasoningMode: 'fast',
-      modelLabel: 'Automático → HardWorkAI Lite · Veloz',
+      modelLabel: 'Automático → Gemini Lite · Veloz',
       reason,
     };
   }
@@ -222,7 +222,7 @@ export function routeRequestModel(params: {
     providerId: 'hardwork-builtin',
     modelId: 'gemini-4-hydrogen',
     reasoningMode: 'balanced',
-    modelLabel: 'Automático → HardWorkAI 4 · Equilibrado',
+    modelLabel: 'Automático → Gemini · Equilibrado',
     reason,
   };
 }
