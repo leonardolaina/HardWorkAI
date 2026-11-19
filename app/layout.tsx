@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from 'next';
 import { Fraunces, Plus_Jakarta_Sans, JetBrains_Mono } from 'next/font/google';
 import { FirebaseAuthProvider } from '@/components/FirebaseAuthProvider';
+import { ModelPreferenceProvider } from '@/components/ModelPreferenceProvider';
+import OfflineIndicator from '@/components/OfflineIndicator';
 import './globals.css';
 
 const fraunces = Fraunces({
@@ -39,6 +41,17 @@ export const metadata: Metadata = {
   title: 'HardWorkAI — Assistente de IA',
   description:
     'HardWorkAI: inteligência artificial com interface editorial simples, limpa e funcional inspirada na Claude, com streaming em tempo real, anexos multimodais, busca na web e painel de artefatos.',
+  manifest: '/manifest.webmanifest',
+  icons: {
+    icon: [
+      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+    ],
+  },
   appleWebApp: {
     capable: true,
     title: 'HardWorkAI',
@@ -69,7 +82,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         className="font-sans antialiased bg-[#FAF9F5] text-[#1F1E1C] dark:bg-[#1B1A18] dark:text-[#F2EFE9] selection:bg-[#C96442]/20 dark:selection:bg-[#D97757]/25 overflow-hidden"
         suppressHydrationWarning
       >
-        <FirebaseAuthProvider>{children}</FirebaseAuthProvider>
+        <FirebaseAuthProvider>
+          <ModelPreferenceProvider>
+            {children}
+            <OfflineIndicator />
+          </ModelPreferenceProvider>
+        </FirebaseAuthProvider>
       </body>
     </html>
   );

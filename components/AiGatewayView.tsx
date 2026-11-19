@@ -854,9 +854,21 @@ export default function AiGatewayView({
                             </span>
                           )}
                           {cfg && (
-                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                              <Check className="w-3 h-3" />
-                              <span>Configurado</span>
+                            <span
+                              className={`inline-flex items-center gap-1 text-xs font-medium ${
+                                cfg.apiKey.trim() || cfg.keyMode === 'member'
+                                  ? 'text-emerald-700 dark:text-emerald-400'
+                                  : 'text-amber-700 dark:text-amber-400'
+                              }`}
+                            >
+                              {cfg.apiKey.trim() || cfg.keyMode === 'member' ? (
+                                <>
+                                  <Check className="w-3 h-3" />
+                                  <span>Conectado</span>
+                                </>
+                              ) : (
+                                <span>Sem chave</span>
+                              )}
                             </span>
                           )}
                         </div>
@@ -901,9 +913,9 @@ export default function AiGatewayView({
                           <span className="text-sm font-medium text-[#1F1E1C] dark:text-[#F2EFE9] truncate">
                             {provider.name}
                           </span>
-                          {cfg && (
+                          {cfg && (cfg.apiKey.trim() || cfg.keyMode === 'member') && (
                             <Check
-                              aria-label="Configurado"
+                              aria-label="Conectado"
                               className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0"
                             />
                           )}

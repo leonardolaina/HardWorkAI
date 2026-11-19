@@ -12,9 +12,9 @@ import {
   Square,
   X,
 } from 'lucide-react';
-import ModelSelectorMenu from './ModelSelectorMenu';
+import ModelSelector from './ModelSelector';
+import { useModelPreference } from './ModelPreferenceProvider';
 import {
-  BUILTIN_AI_MODELS,
   RESPONSE_STYLES,
   type AiModelChoice,
   type Attachment,
@@ -24,8 +24,6 @@ import {
 interface ComposerProps {
   value: string;
   attachments: Attachment[];
-  availableModels: AiModelChoice[];
-  selectedModelId: string;
   style: ResponseStyle;
   webSearch: boolean;
   isStreaming: boolean;
@@ -34,7 +32,7 @@ interface ComposerProps {
   onChange: (value: string) => void;
   onAddAttachments: (files: FileList | File[]) => void;
   onRemoveAttachment: (id: string) => void;
-  onChangeModel: (modelId: string) => void;
+  onModelSelected?: (choice: AiModelChoice) => void;
   onChangeStyle: (style: ResponseStyle) => void;
   onToggleWebSearch: () => void;
   onOpenGateway: (providerId?: string) => void;
@@ -51,8 +49,6 @@ function formatBytes(bytes: number): string {
 export default function Composer({
   value,
   attachments,
-  availableModels,
-  selectedModelId,
   style,
   webSearch,
   isStreaming,
@@ -61,23 +57,20 @@ export default function Composer({
   onChange,
   onAddAttachments,
   onRemoveAttachment,
-  onChangeModel,
+  onModelSelected,
   onChangeStyle,
   onToggleWebSearch,
   onOpenGateway,
   onSend,
   onStop,
 }: ComposerProps) {
+  const { activeModel } = useModelPreference();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const styleMenuRef = useRef<HTMLDivElement>(null);
 
   const [styleOpen, setStyleOpen] = useState(false);
 
-  const activeModel =
-    availableModels.find((m) => m.id === selectedModelId) ??
-    availableModels[0] ??
-    BUILTIN_AI_MODELS[0];
   const activeStyle =
     RESPONSE_STYLES.find((s) => s.id === style) ?? RESPONSE_STYLES[0];
   const canSend = (value.trim().length > 0 || attachments.length > 0) && !isStreaming;
@@ -301,11 +294,9 @@ export default function Composer({
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 min-w-0">
-          <ModelSelectorMenu
-            availableModels={availableModels}
-            selectedModelId={activeModel.id}
-            onChangeModel={onChangeModel}
+          <ModelSelector
             onOpenGateway={onOpenGateway}
+            onAfterSelect={onModelSelected}
             placement="top"
             align="right"
             variant="composer"

@@ -7,6 +7,7 @@ import {
   Code2,
   Download,
   FileEdit,
+  KeyRound,
   Layout,
   PanelLeftOpen,
   Plus,
@@ -26,7 +27,9 @@ import { BrandLogo, BrandWordmark } from './BrandLogo';
 import Sidebar from './Sidebar';
 import Composer from './Composer';
 import MessageThread from './MessageThread';
-import ModelSelectorMenu from './ModelSelectorMenu';
+import ModelSelector from './ModelSelector';
+import PWAInstallButton from './PWAInstallButton';
+import { useModelPreference } from './ModelPreferenceProvider';
 import { DEFAULT_PLUGINS } from './ManageViews';
 import { useFirebaseAuth, type HardWorkUser } from './FirebaseAuthProvider';
 
@@ -40,13 +43,6 @@ const McpConnectorsView = dynamic(() => import('./McpConnectorsView'));
 import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import type { McpConnectionRecord } from '@/lib/mcpCatalog';
 import {
-  ALL_PROVIDERS,
-  getSelectableModels,
-  type ProviderConfig,
-} from '@/lib/providers';
-import {
-  AUTO_ALL_AI_MODEL,
-  BUILTIN_AI_MODELS,
   type ActiveSection,
   type AiModelChoice,
   type ArtifactData,
@@ -64,10 +60,8 @@ const STORAGE_KEYS = {
   theme: 'lume_theme_v1',
   instructions: 'lume_instructions_v1',
   mode: 'lume_mode_v1',
-  selectedModel: 'hardworkai_selected_model_v1',
   style: 'lume_style_v1',
   plugins: 'hardworkai_plugins_v1',
-  providerConfigs: 'hardworkai_provider_configs_v1',
 };
 
 const QUICK_STARTERS = [
@@ -196,6 +190,15 @@ export default function LumeWorkspace() {
     logout,
   } = useFirebaseAuth();
 
+  const {
+    setModelPreference,
+    providerConfigs,
+    saveProviderConfig,
+    deleteProviderConfig,
+    availableModels,
+    activeModel,
+  } = useModelPreference();
+
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<ActiveSection>('chat');
@@ -204,13 +207,9 @@ export default function LumeWorkspace() {
   const [mcpConnections, setMcpConnections] = useState<
     Record<string, McpConnectionRecord>
   >({});
-  const [providerConfigs, setProviderConfigs] = useState<
-    Record<string, ProviderConfig>
-  >({});
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [mode, setMode] = useState<ReasoningMode>('balanced');
-  const [selectedModelId, setSelectedModelId] = useState<string>('auto:builtin');
   const [style, setStyle] = useState<ResponseStyle>('normal');
   const [webSearch, setWebSearch] = useState(false);
   const [customInstructions, setCustomInstructions] = useState('');
@@ -249,11 +248,6 @@ export default function LumeWorkspace() {
           setMode(savedMode);
         }
 
-        const savedModel = localStorage.getItem(STORAGE_KEYS.selectedModel);
-        if (savedModel) {
-          setSelectedModelId(savedModel);
-        }
-
         const savedStyle = localStorage.getItem(STORAGE_KEYS.style) as ResponseStyle | null;
         if (
           savedStyle &&
@@ -266,19 +260,6 @@ export default function LumeWorkspace() {
         if (savedPlugins) {
           const parsed = JSON.parse(savedPlugins) as PluginItem[];
           if (Array.isArray(parsed) && parsed.length > 0) setPlugins(parsed);
-        }
-
-        const savedProviderConfigs = localStorage.getItem(
-          STORAGE_KEYS.providerConfigs
-        );
-        if (savedProviderConfigs) {
-          const parsed = JSON.parse(savedProviderConfigs) as Record<
-            string,
-            ProviderConfig
-          >;
-          if (parsed && typeof parsed === 'object') {
-            setProviderConfigs(parsed);
-          }
         }
 
         const savedTheme = localStorage.getItem(STORAGE_KEYS.theme);
@@ -328,14 +309,10 @@ export default function LumeWorkspace() {
     if (!hydrated) return;
     try {
       localStorage.setItem(STORAGE_KEYS.plugins, JSON.stringify(plugins));
-      localStorage.setItem(
-        STORAGE_KEYS.providerConfigs,
-        JSON.stringify(providerConfigs)
-      );
     } catch {
       // ignore storage errors
     }
-  }, [plugins, providerConfigs, hydrated]);
+  }, [plugins, hydrated]);
 
   // Real-time Firestore listener for account-bound MCP connections
   useEffect(() => {
@@ -481,56 +458,6 @@ export default function LumeWorkspace() {
     [user]
   );
 
-  const availableModels = useMemo<AiModelChoice[]>(() => {
-    const gatewayChoices: AiModelChoice[] = [];
-
-    for (const [providerId, cfg] of Object.entries(providerConfigs)) {
-      if (!cfg?.enabled || !cfg.apiKey?.trim()) continue;
-      const providerDef = ALL_PROVIDERS.find((p) => p.id === providerId);
-      if (!providerDef) continue;
-
-      const allProviderModels = getSelectableModels(providerDef);
-      const enabledModels =
-        cfg.modelSelection === 'picked' && cfg.selectedModels.length > 0
-          ? cfg.selectedModels
-          : allProviderModels;
-
-      for (const modelName of enabledModels) {
-        const cleanShort = modelName.includes('/')
-          ? modelName.split('/').pop() || modelName
-          : modelName;
-        gatewayChoices.push({
-          id: `gateway:${providerId}:${modelName}`,
-          source: 'gateway',
-          providerId,
-          providerName: providerDef.name,
-          modelId: modelName,
-          label: `${providerDef.name} · ${cleanShort}`,
-          shortLabel: cleanShort,
-          description: `${providerDef.name} · ${modelName}`,
-        });
-      }
-    }
-
-    if (gatewayChoices.length > 0) {
-      return [
-        BUILTIN_AI_MODELS[0],
-        AUTO_ALL_AI_MODEL,
-        ...BUILTIN_AI_MODELS.slice(1),
-        ...gatewayChoices,
-      ];
-    }
-
-    return [...BUILTIN_AI_MODELS];
-  }, [providerConfigs]);
-
-  const activeModel = useMemo<AiModelChoice>(
-    () =>
-      availableModels.find((m) => m.id === selectedModelId) ??
-      BUILTIN_AI_MODELS[0],
-    [availableModels, selectedModelId]
-  );
-
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
     [conversations, activeId]
@@ -595,21 +522,16 @@ export default function LumeWorkspace() {
     setActiveArtifact(null);
   }, []);
 
-  const handleChangeModel = (nextModelId: string) => {
-    setSelectedModelId(nextModelId);
-    const chosen = availableModels.find((m) => m.id === nextModelId);
-    if (chosen?.reasoningMode) {
+  const handleModelSelected = useCallback((chosen: AiModelChoice) => {
+    if (chosen.reasoningMode) {
       setMode(chosen.reasoningMode);
-    }
-    try {
-      localStorage.setItem(STORAGE_KEYS.selectedModel, nextModelId);
-      if (chosen?.reasoningMode) {
+      try {
         localStorage.setItem(STORAGE_KEYS.mode, chosen.reasoningMode);
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
-  };
+  }, []);
 
   const handleChangeStyle = (nextStyle: ResponseStyle) => {
     setStyle(nextStyle);
@@ -1186,7 +1108,7 @@ export default function LumeWorkspace() {
 
       <div className="flex-1 flex min-w-0 h-full overflow-hidden">
         <main className="flex-1 flex flex-col min-w-0 h-full relative">
-          <header className="flex items-center justify-between gap-4 px-4 sm:px-6 h-14 shrink-0">
+          <header className="relative z-30 flex items-center justify-between gap-3 px-4 sm:px-6 h-14 shrink-0 border-b border-[#ECE8DF]/75 dark:border-[#272622]">
             <div className="flex items-center gap-2 min-w-0">
               {!sidebarOpen && (
                 <button
@@ -1207,17 +1129,13 @@ export default function LumeWorkspace() {
                 </div>
               )}
 
-              {activeSection === 'chat' && (
-                <ModelSelectorMenu
-                  availableModels={availableModels}
-                  selectedModelId={activeModel.id}
-                  onChangeModel={handleChangeModel}
-                  onOpenGateway={handleOpenGateway}
-                  placement="bottom"
-                  align="left"
-                  variant="header"
-                />
-              )}
+              <ModelSelector
+                onOpenGateway={handleOpenGateway}
+                onAfterSelect={handleModelSelected}
+                placement="bottom"
+                align="left"
+                variant="header"
+              />
 
               {activeSection === 'chat' && !isEmptyState && activeConversation && (
                 <h1 className="hidden md:block text-sm font-medium text-[#3F3D37] dark:text-[#D5D0C6] truncate">
@@ -1226,7 +1144,7 @@ export default function LumeWorkspace() {
               )}
 
               {activeSection !== 'chat' && (
-                <span className="text-xs text-[#7D786E] dark:text-[#969187] truncate">
+                <span className="hidden sm:inline text-xs text-[#7D786E] dark:text-[#969187] truncate">
                   Gerenciar ·{' '}
                   {activeSection === 'plugins'
                     ? 'Plugins'
@@ -1237,42 +1155,46 @@ export default function LumeWorkspace() {
               )}
             </div>
 
-            {activeSection === 'chat' && !isEmptyState && activeConversation && (
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={handleExportMarkdown}
-                  title="Exportar conversa em Markdown"
-                  aria-label="Exportar conversa em Markdown"
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#6B675E] dark:text-[#A19C92] hover:bg-[#EFECE3] dark:hover:bg-[#262522] hover:text-[#1F1E1C] dark:hover:text-[#F2EFE9] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Exportar</span>
-                </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <PWAInstallButton variant="header" />
 
-                {!sidebarOpen && (
+              {activeSection === 'chat' && !isEmptyState && activeConversation && (
+                <>
                   <button
                     type="button"
-                    onClick={handleNewChat}
-                    title="Nova conversa (Ctrl+K)"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#EFECE3] dark:bg-[#262522] hover:bg-[#E5E1D6] dark:hover:bg-[#312F2B] text-[#1F1E1C] dark:text-[#F2EFE9] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                    onClick={handleExportMarkdown}
+                    title="Exportar conversa em Markdown"
+                    aria-label="Exportar conversa em Markdown"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#6B675E] dark:text-[#A19C92] hover:bg-[#EFECE3] dark:hover:bg-[#262522] hover:text-[#1F1E1C] dark:hover:text-[#F2EFE9] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    <Plus className="w-3.5 h-3.5 text-[#C96442] dark:text-[#D97757]" />
-                    <span>Nova</span>
+                    <Download className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Exportar</span>
                   </button>
-                )}
-              </div>
-            )}
 
-            {activeSection !== 'chat' && (
-              <button
-                type="button"
-                onClick={() => setActiveSection('chat')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#EFECE3] dark:bg-[#262522] hover:bg-[#E5E1D6] dark:hover:bg-[#312F2B] text-[#1F1E1C] dark:text-[#F2EFE9] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <span>Voltar ao chat</span>
-              </button>
-            )}
+                  {!sidebarOpen && (
+                    <button
+                      type="button"
+                      onClick={handleNewChat}
+                      title="Nova conversa (Ctrl+K)"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#EFECE3] dark:bg-[#262522] hover:bg-[#E5E1D6] dark:hover:bg-[#312F2B] text-[#1F1E1C] dark:text-[#F2EFE9] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-[#C96442] dark:text-[#D97757]" />
+                      <span>Nova</span>
+                    </button>
+                  )}
+                </>
+              )}
+
+              {activeSection !== 'chat' && (
+                <button
+                  type="button"
+                  onClick={() => setActiveSection('chat')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#EFECE3] dark:bg-[#262522] hover:bg-[#E5E1D6] dark:hover:bg-[#312F2B] text-[#1F1E1C] dark:text-[#F2EFE9] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <span>Voltar ao chat</span>
+                </button>
+              )}
+            </div>
           </header>
 
           {activeSection === 'plugins' ? (
@@ -1311,19 +1233,8 @@ export default function LumeWorkspace() {
                 configs={providerConfigs}
                 initialProviderId={gatewayTargetProviderId}
                 onClearInitialProvider={() => setGatewayTargetProviderId(null)}
-                onSaveConfig={(cfg) =>
-                  setProviderConfigs((prev) => ({
-                    ...prev,
-                    [cfg.providerId]: cfg,
-                  }))
-                }
-                onDeleteConfig={(providerId) =>
-                  setProviderConfigs((prev) => {
-                    const next = { ...prev };
-                    delete next[providerId];
-                    return next;
-                  })
-                }
+                onSaveConfig={saveProviderConfig}
+                onDeleteConfig={deleteProviderConfig}
               />
             </div>
           ) : isEmptyState ? (
@@ -1341,11 +1252,37 @@ export default function LumeWorkspace() {
                   </h1>
                 </div>
 
+                {activeModel.source === 'gateway' && !activeModel.configured && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300/75 dark:border-amber-900/60 bg-amber-50/80 dark:bg-amber-950/25 px-3.5 py-2.5 text-xs text-amber-900 dark:text-amber-200">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <KeyRound className="w-3.5 h-3.5 shrink-0" />
+                      <span>
+                        <strong>{activeModel.label}</strong> selecionado. Conecte sua chave de{' '}
+                        <strong>{activeModel.providerName}</strong> para enviar mensagens.
+                      </span>
+                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenGateway(activeModel.providerId)}
+                        className="px-2.5 py-1 rounded-lg bg-[#1F1E1C] dark:bg-[#F2EFE9] text-white dark:text-[#1F1E1C] font-medium whitespace-nowrap cursor-pointer"
+                      >
+                        Conectar chave
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setModelPreference('auto:builtin')}
+                        className="px-2.5 py-1 rounded-lg border border-amber-300/80 dark:border-amber-800 hover:bg-amber-100/70 dark:hover:bg-amber-900/30 font-medium whitespace-nowrap cursor-pointer"
+                      >
+                        Usar Automático
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <Composer
                   value={input}
                   attachments={attachments}
-                  availableModels={availableModels}
-                  selectedModelId={activeModel.id}
                   style={style}
                   webSearch={webSearch}
                   isStreaming={isStreaming}
@@ -1355,7 +1292,7 @@ export default function LumeWorkspace() {
                   onRemoveAttachment={(id) =>
                     setAttachments((prev) => prev.filter((a) => a.id !== id))
                   }
-                  onChangeModel={handleChangeModel}
+                  onModelSelected={handleModelSelected}
                   onChangeStyle={handleChangeStyle}
                   onToggleWebSearch={() => setWebSearch((w) => !w)}
                   onOpenGateway={handleOpenGateway}
@@ -1397,12 +1334,37 @@ export default function LumeWorkspace() {
               </div>
 
               <div className="shrink-0 px-3 sm:px-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-4 pt-2 bg-gradient-to-t from-[#FAF9F5] via-[#FAF9F5] to-transparent dark:from-[#1B1A18] dark:via-[#1B1A18]">
-                <div className="w-full max-w-[740px] mx-auto">
+                <div className="w-full max-w-[740px] mx-auto space-y-2">
+                  {activeModel.source === 'gateway' && !activeModel.configured && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300/75 dark:border-amber-900/60 bg-amber-50/80 dark:bg-amber-950/25 px-3.5 py-2 text-xs text-amber-900 dark:text-amber-200">
+                      <span className="flex items-center gap-2 min-w-0">
+                        <KeyRound className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">
+                          Conecte a chave de <strong>{activeModel.providerName}</strong> para usar{' '}
+                          <strong>{activeModel.shortLabel}</strong>.
+                        </span>
+                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenGateway(activeModel.providerId)}
+                          className="px-2.5 py-1 rounded-lg bg-[#1F1E1C] dark:bg-[#F2EFE9] text-white dark:text-[#1F1E1C] font-medium whitespace-nowrap cursor-pointer"
+                        >
+                          Conectar chave
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setModelPreference('auto:builtin')}
+                          className="px-2.5 py-1 rounded-lg border border-amber-300/80 dark:border-amber-800 hover:bg-amber-100/70 dark:hover:bg-amber-900/30 font-medium whitespace-nowrap cursor-pointer"
+                        >
+                          Automático
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <Composer
                     value={input}
                     attachments={attachments}
-                    availableModels={availableModels}
-                    selectedModelId={activeModel.id}
                     style={style}
                     webSearch={webSearch}
                     isStreaming={isStreaming}
@@ -1412,7 +1374,7 @@ export default function LumeWorkspace() {
                     onRemoveAttachment={(id) =>
                       setAttachments((prev) => prev.filter((a) => a.id !== id))
                     }
-                    onChangeModel={handleChangeModel}
+                    onModelSelected={handleModelSelected}
                     onChangeStyle={handleChangeStyle}
                     onToggleWebSearch={() => setWebSearch((w) => !w)}
                     onOpenGateway={handleOpenGateway}

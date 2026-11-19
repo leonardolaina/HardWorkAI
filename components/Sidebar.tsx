@@ -23,6 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { BrandLogo, BrandWordmark } from './BrandLogo';
+import PWAInstallButton from './PWAInstallButton';
 import type { HardWorkUser } from './FirebaseAuthProvider';
 import type { ActiveSection, Conversation } from '@/lib/types';
 
@@ -456,6 +457,8 @@ export default function Sidebar({
               <span>Entrar na HardWorkAI</span>
             </button>
           )}
+
+          <PWAInstallButton variant="sidebar" />
 
           <button
             type="button"
